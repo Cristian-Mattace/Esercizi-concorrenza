@@ -37,10 +37,10 @@ void pausetta(void) {
     nanosleep(&t, NULL);
 }
 
+
 void dispR(struct gestore_t *g, int threadId){
-    printf("Sono il thread P%d, sto aspettando il mutex\n", threadId);
     sem_wait(&g->mutex);
-    printf("Sono il thread P%d, R è di nuovo disponibile\n", threadId);
+    printf("Sono P%d, R è di nuovo disponibile\n", threadId);
     sem_post(&g->semR);
     sem_post(&g->mutex);
 }
@@ -54,12 +54,13 @@ void segnalaA(struct gestore_t *g, int threadId){
     sem_getvalue(&g->semR, &v);
     
     if(v){
-        printf("Sono il thread P%d, R è disponibile quindi mi sospendo\n", threadId);
+        printf("Sono P%d, R è disponibile quindi mi sospendo\n", threadId);
         g->blocked[threadId] = true;
         sem_post(&g->mutex);
+
         sem_wait(&g->semProduttori[threadId]);
 
-        printf("Sono il thread P%d e sono ripartito\n", threadId);
+        printf("Sono P%d e sono ripartito\n", threadId);
 
         dispR(g, threadId);
     }
@@ -68,23 +69,23 @@ void segnalaA(struct gestore_t *g, int threadId){
         for(cnt=0; cnt<=threadId; cnt++){
             
             if(g->blocked[cnt]){
-                printf("Sono il thread P%d e sto sbloccando il P%d\n", threadId, cnt);
+                printf("Sono P%d e sto sbloccando il P%d\n", threadId, cnt);
                 g->blocked[cnt] = false;
                 sem_post(&g->mutex);
                 sem_post(&g->semProduttori[cnt]);
                 
 
-                printf("Sono il thread P%d, mi sospendo\n", threadId);
+                printf("Sono P%d, mi sospendo\n", threadId);
                 sem_wait(&g->semProduttori[threadId]);
-                printf("Sono il thread P%dE MI SONO SBLOCCATO\n", threadId);
+                printf("Sono P%dE MI SONO SBLOCCATO\n", threadId);
 
-                dispR(g, cnt);
+                dispR(g, threadId);
                 break;
             }
         }
 
-        if(cnt==threadId){
-            printf("CIAO");
+        if(cnt-1==threadId){
+            sem_post(&g->mutex);
             dispR(g, threadId);
         }
     }
@@ -94,10 +95,25 @@ void segnalaA(struct gestore_t *g, int threadId){
 void usaR(struct gestore_t *g, int threadId){
     sem_wait(&g->mutex);
 
-    sem_wait(&g->semR);
-    printf("Sono il thread C%d e sto usando R\n", threadId);
+    //sem_wait(&g->semR);
+    printf("Sono C%d e sto usando R\n", threadId);
     sleep(1);
-    printf("Sono il thread C%d e sto rilasciando R\n", threadId);
+    printf("Sono C%d e sto rilasciando R\n", threadId);
+
+    sem_post(&g->mutex);
+}
+
+void controllaSegnalanti(struct gestore_t *g){
+    sem_wait(&g->mutex);
+
+    for(int cnt=0; cnt<N; cnt++){
+        if(g->blocked[cnt] == true){
+            printf("Ho svegliato %d\n", cnt);
+            sem_post(&g->semProduttori[cnt]);
+            g->blocked[cnt]=false;
+            break;
+        }
+    }
 
     sem_post(&g->mutex);
 }
@@ -112,11 +128,15 @@ void testaA(struct gestore_t *g, int threadId){
     if(v){
         sem_post(&g->mutex);
 
+        sem_wait(&g->semR);
+
         usaR(g, threadId);
     }
     else{
-        printf("Sono il thread C%d, R è occupata e mi sospendo\n", threadId);
+        printf("Sono C%d, R è occupata e mi sospendo\n", threadId);
         sem_post(&g->mutex);
+
+        controllaSegnalanti(g);
 
         sem_wait(&g->semR);
 
