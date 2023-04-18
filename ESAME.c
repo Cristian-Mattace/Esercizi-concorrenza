@@ -14,16 +14,16 @@ Inoltre, nella soluzione su carta, non avendo inserito la coda
 FIFO, non si poneva il seguente problema:
     Se un thread libera un attrezzo eseguendo una post sul semaforo
     corrispondente, non è detto che sia il primo thread sospeso a
-    continuare la sua esecuzione, perchè può capitare che un altro 
-    thread prenda al suo posto il mutex continuando l'esecuzione.
+    prendere l'attrezzo del tipo corrispondente, perchè un altro 
+    thread potrebbe eseguire la wait prima di lui.
 
-Nella seguente soluzione per risolvere il precedente problema ho
-utilizzato la tecnica del token passing.
-Sostanialmente un processo che termina la sua esecuzione su un 
-tipo di attrezzo, controlla la coda dei processi bloccati su quel
-tipo di attrezzo, e se è presente qualcuno, allorà eseguirà la post
-sulla coda, ma non sul semaforo dell'attrezzo, eseguendo così il
-token passing.
+Nella seguente soluzione per risolvere il precedente problema, il 
+processo che sveglia il thread sospeso sull'attrezzo di quel tipo, 
+non esegue la POST sul semaforo, in modo tale da assegnare quel tipo
+di attrezzo al thread svegliato.
+
+Non è detto che parta per primo al risveglio, potrebbe accodarsi 
+sul mutex.
 
 Le parti commentate nel codice sono principalmente parti aggiunte
 dopo la consegna del codice cartaceo.
@@ -171,7 +171,8 @@ void usaattrezzo(struct palestra_t *p, int numeropersona, int tipoattrezzo){
         int v;
         sem_getvalue(&p->semAttrezzo[tipoattrezzo], &v);
 
-        //se il valore del semaforo è 0, oppure se ci sono processi sospesi per quel tipo di attrezzo, allora bisogna accodare il processo
+        //se il valore del semaforo è 0, oppure se ci sono processi sospesi per quel tipo di attrezzo, 
+        //allora bisogna accodare il processo
         if(p->sospesi[tipoattrezzo] > 0 || v == 0){
             
             printf("Sono il thread [ %d ], non avevo prenotato, non ci sono tipi [ %d ] disponibili, mi metto in coda\n", numeropersona, tipoattrezzo);
@@ -189,7 +190,11 @@ void usaattrezzo(struct palestra_t *p, int numeropersona, int tipoattrezzo){
             //sospendo il processo sulla coda FIFO, sul tipo corrispondente e nell'ultima posizione
             sem_wait(&p->semSospesi[tipoattrezzo][posizione]);
 
-            //una volta arrivato qui, non ha bisogno di fare la wait sul semaforo dell'attrezzo, perchè si usa la tecnica del TOKEN PASSING
+            //una volta arrivato qui, non ha bisogno di fare la wait sul semaforo dell'attrezzo, 
+            //perchè il processo che ha svegliato questo thread non ha eseguito la POST.
+            //Nessun altro thread potrà "rubare" la risorsa arrivando prima, l'unico caso "strano"
+            //è che questo thread svegliato non venga eseguito subito perchè non riesce a prendere per 
+            //primo il mutex, ma la risorsa è assegnata a lui.
 
             printf("Sono il thread [ %d ] e mi hanno SVEGLIATO per il tipo [ %d ]\n", numeropersona, tipoattrezzo);
 
@@ -217,8 +222,8 @@ void prenota(struct palestra_t *p, int numeropersona, int tipoattrezzo){
     //prendo il valore del semaforo dell'attrezzo del tipo corrispondente
     sem_getvalue(&p->semAttrezzo[tipoattrezzo], &v);
     //if(p->liberi[tipoattrezzo] > 0){
-    //controllo il valore del semaforo, perchè il valore di p->liberi[tipoattrezzo] potrebbe non essere ancora stato modificato dato che il processo 
-    //potrebbe non aver ancora preso subito il MUTEX
+    //controllo il valore del semaforo, perchè il valore di p->liberi[tipoattrezzo] potrebbe non 
+    //essere ancora stato modificato dato che il processo potrebbe non aver ancora preso subito il MUTEX
     if(v>0){    
         for(int cnt=0; cnt<M; cnt++){
             if(p->prenotazioni[tipoattrezzo][cnt] == -1){
@@ -245,10 +250,12 @@ void fineuso(struct palestra_t *p, int numeropersona, int tipoattrezzo){
         //aggiorno l'indice di testa sempre con il modulo della grandezza massimo per la coda FIFO
         p->head[tipoattrezzo] = (p->head[tipoattrezzo] + 1) % (P-M);
         printf("Sono il thread [ %d ] ed ho svegliato qualcuno sul tipo [ %d ]\n", numeropersona, tipoattrezzo);
-        //una volta svegliato il processo, non si esegue la post sul semaforo corrispondente perchè si usa la tecnica del TOKEN PASSING
+        //una volta svegliato il processo, non si esegue la post sul semaforo corrispondente, così l'attrezzo di quel
+        //tipo è assegnato al thread svegliato, e nessun altro potrà "rubargliela". 
     }
     else{
-        //se invece non c'è nessun processo sospeso sulla coda FIFO, allora si fa la POST sul semaforo dell'attrezzo corrispondente
+        //se invece non c'è nessun processo sospeso sulla coda FIFO, allora si fa la POST sul 
+        //semaforo dell'attrezzo corrispondente
         sem_post(&p->semAttrezzo[tipoattrezzo]);    
         p->liberi[tipoattrezzo]++;
     }
@@ -290,9 +297,8 @@ int main (int argc, char **argv) {
     pthread_t thread[P];
     int i;
 
-    // init struct
     init_palestra(&palestra);
-    // init random numbers
+
     srand(555);
 
     pthread_attr_init(&threadAttr);
